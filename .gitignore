@@ -1,0 +1,19 @@
+# Variáveis de ambiente e credenciais
+.env
+.env.*
+!.env.example
+
+# Backups e dumps locais
+/backups/
+/dumps/
+*.dump
+*.bak
+*.sql.gz
+
+# Dados locais do MySQL
+/mysql-data/
+*.pid
+
+# Arquivos temporários do sistema operacional
+.DS_Store
+Thumbs.db
