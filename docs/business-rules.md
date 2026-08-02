@@ -185,3 +185,29 @@ Devem ser registradas, no mínimo:
 - exclusões físicas administrativas.
 
 Cada registro deve identificar a ação, o horário, a origem e o usuário responsável quando houver.
+
+## RN-010 — Iluminação programada e acionamento temporário
+
+A iluminação automática deve seguir o fotoperíodo definido na configuração vigente do lote.
+
+### Fotoperíodo
+
+- O fotoperíodo deve ser armazenado em minutos.
+- A programação automática começa diariamente às 06:00 no horário da propriedade.
+- O horário de término é calculado a partir da duração configurada.
+- Uma fase com `fotoperiodo_minutos` igual a zero não recebe iluminação automática.
+- Ao iniciar ou alterar uma fase, o fotoperíodo padrão deve ser copiado para a configuração do lote.
+- Alterações no fotoperíodo devem gerar uma nova configuração, preservando o histórico.
+
+### Acionamento manual
+
+- Quando a iluminação programada estiver desligada, o produtor pode ligá-la manualmente.
+- O acionamento manual deve ser temporário e não altera o fotoperíodo.
+- O tempo padrão do acionamento manual é de 60 minutos.
+- O usuário pode desligar a iluminação antes do encerramento do temporizador.
+- O ESP32 deve controlar o desligamento localmente, inclusive durante falhas de conexão.
+- O acionamento e o desligamento devem ser registrados no histórico dos atuadores.
+
+### Evolução futura
+
+Horários personalizados e programações diferentes por dia da semana poderão ser adicionados posteriormente, caso se tornem necessários.
