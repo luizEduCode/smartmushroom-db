@@ -36,17 +36,18 @@ Um lote finalizado pode ser reaberto somente quando sua sala não possuir outro 
 ### Ao finalizar
 
 - O status deve mudar de `ativo` para `finalizado`.
-- A data de finalização deve ser registrada.
-- O lote deve deixar de receber novas leituras e acionamentos.
+- O instante da finalização deve ser registrado em `finalizado_em`.
+- O lote não deve receber novas coletas ou acionamentos ocorridos depois de `finalizado_em`.
+- Coletas e acionamentos ocorridos enquanto o lote estava ativo podem ser sincronizados posteriormente.
 - A ação deve ser registrada para auditoria.
 
 ### Ao reabrir
 
 - O sistema deve verificar se a sala está disponível.
 - O status deve voltar para `ativo`.
-- A data de finalização deve voltar para `NULL`.
+- `finalizado_em` deve voltar para `NULL`.
 - O usuário deve confirmar a ação.
-- O motivo da reabertura deve ser registrado.
+- O motivo da reabertura deve ser registrado na auditoria.
 - A ação deve ser registrada para auditoria.
 
 ### Proteções de interface
@@ -55,24 +56,27 @@ Um lote finalizado pode ser reaberto somente quando sua sala não possuir outro 
 - O aplicativo deve oferecer a opção de desfazer imediatamente.
 - A reabertura posterior deve utilizar uma ação separada e claramente identificada.
 
-## RN-003 — Leituras atrasadas e sincronização offline
+## RN-003 — Coletas atrasadas e sincronização offline
 
-O sistema deve distinguir o momento em que uma leitura foi realizada do momento em que ela foi recebida pela API.
+O sistema deve distinguir o momento em que uma coleta foi realizada do momento em que ela foi recebida pela API.
 
-Uma leitura pode ser recebida depois da finalização do lote quando tiver sido realizada enquanto o lote ainda estava ativo.
+Uma coleta pode ser recebida depois da finalização do lote quando tiver sido realizada enquanto o lote ainda estava ativo.
 
 ### Regras
 
-- Leituras realizadas enquanto o lote estava ativo podem ser armazenadas posteriormente.
-- Leituras realizadas depois da finalização devem ser rejeitadas.
-- Cada leitura enviada pelo dispositivo deve possuir um identificador único.
-- O reenvio de uma leitura já armazenada não deve criar duplicidade.
-- O momento original da medição deve ser preservado.
-- O momento em que a API recebeu a leitura também deve ser registrado.
+- `medido_em` deve representar o momento original da medição.
+- `recebido_em` deve representar o momento em que a API recebeu a coleta.
+- `medido_em` não pode ser anterior a `lote.iniciado_em`.
+- Em lotes finalizados, `medido_em` não pode ser posterior a `lote.finalizado_em`.
+- Coletas realizadas enquanto o lote estava ativo podem ser armazenadas posteriormente.
+- Coletas realizadas depois da finalização devem ser rejeitadas.
+- Cada coleta enviada pelo ESP32 deve possuir um `identificador_externo` único.
+- O reenvio de uma coleta já armazenada não deve criar duplicidade.
+- As leituras devem permanecer agrupadas na coleta correspondente.
 
 ### Objetivo
 
-Permitir que o ESP32 armazene leituras localmente durante falhas de conexão e faça a sincronização quando o servidor voltar, sem perda ou duplicação de dados.
+Permitir que o ESP32 armazene coletas localmente durante falhas de conexão e faça a sincronização quando o servidor voltar, sem perda ou duplicação de dados.
 
 ## RN-004 — Mudança de fase e configuração do lote
 
@@ -99,14 +103,18 @@ Os sensores A1, A2, A3, B1, B2 e B3 representam uma configuração possível, n�
 ### Sensores
 
 - Cada sensor deve pertencer a uma sala.
-- Cada sensor deve identificar o tipo de grandeza medida.
-- O sensor pode representar um ponto no composto ou no ambiente.
+- Cada sensor deve representar uma única grandeza e uma única localização.
+- Um equipamento físico capaz de medir mais de uma grandeza deve ser representado por mais de um sensor lógico.
+- Um DHT22 deve ser representado por um sensor lógico de temperatura e outro de umidade.
+- A localização `composto` somente pode ser utilizada com a grandeza `temperatura` nesta primeira versão.
+- A grandeza `co2` somente pode utilizar a localização `ambiente` nesta primeira versão.
+- Sensores com localização `externo` são observacionais e não geram alertas baseados nos limites da configuração do lote.
 - Um sensor pode ser desativado sem excluir suas leituras anteriores.
 - Sensores desativados não devem receber novas leituras.
 
 ### Coletas
 
-- Cada ciclo de medição realizado pelo dispositivo deve gerar uma coleta.
+- Cada ciclo de medição realizado pelo ESP32 deve gerar uma coleta.
 - A coleta deve pertencer a um lote.
 - A coleta deve registrar o momento da medição e o momento do recebimento.
 - Cada coleta deve possuir um identificador externo único para evitar duplicidade durante sincronizações.
@@ -116,22 +124,36 @@ Os sensores A1, A2, A3, B1, B2 e B3 representam uma configuração possível, n�
 
 - Cada leitura deve pertencer a uma coleta.
 - Cada leitura deve pertencer ao sensor que produziu a medição.
-- Cada leitura deve armazenar uma única grandeza e um único valor.
+- Cada leitura deve armazenar um único valor.
+- Uma coleta pode possuir no máximo uma leitura por sensor.
 - O sensor utilizado deve pertencer à mesma sala do lote associado à coleta.
+- Valores inválidos de hardware, como `NaN`, não devem ser armazenados.
 
-## RN-006 — Histórico de acionamento dos atuadores
+## RN-006 — Comandos e histórico dos atuadores
 
-Toda mudança de estado de um atuador deve gerar um registro histórico.
+Todo comando ou acionamento local de um atuador deve gerar um registro em `controle_atuador`.
+
+O sistema deve distinguir um comando solicitado do estado efetivamente aplicado ao equipamento.
 
 ### Regras
 
-- O registro deve identificar o atuador, o lote, o estado e o horário.
-- A origem deve distinguir ação manual, automação online e controle local offline.
+- O registro deve identificar o atuador, o estado e os instantes relacionados à operação.
+- O lote pode ser registrado quando o acionamento estiver relacionado a um cultivo ativo.
+- A origem deve distinguir ação manual, automação online e automação local.
 - Ações manuais devem registrar o usuário responsável.
 - Ações automáticas devem manter o usuário como `NULL`.
 - Quando disponível, deve ser registrado o motivo do acionamento.
+- Cada registro deve possuir um `identificador_externo` único.
 - Eventos offline podem ser sincronizados posteriormente sem gerar duplicidade.
-- Registros históricos de acionamento não devem ser alterados ou excluídos durante o uso normal.
+- Comandos criados pela API devem iniciar com `status_execucao` igual a `pendente`.
+- Ações realizadas localmente pelo ESP32 podem ser registradas diretamente como `aplicado`.
+- O ESP32 deve atualizar o comando para `aplicado` quando confirmar sua execução.
+- Um comando que não puder ser executado deve assumir o estado `falhou`.
+- `aplicado_em` deve ser preenchido quando `status_execucao` for `aplicado`.
+- O estado efetivo do atuador deve considerar somente registros com `status_execucao` igual a `aplicado`.
+- O estado efetivo deve ser obtido pelo registro mais recente, ordenado por `aplicado_em` e `id_controle_atuador`.
+- Depois da criação, somente `status_execucao` e `aplicado_em` podem ser atualizados.
+- Os demais dados do registro não devem ser alterados ou excluídos durante o uso normal.
 
 ## RN-007 — Exclusão e preservação de dados
 
@@ -139,36 +161,58 @@ Dados operacionais e históricos não devem ser excluídos fisicamente durante o
 
 ### Regras
 
-- Lotes devem ser finalizados ou arquivados, não excluídos.
+- Lotes devem ser finalizados, não excluídos.
 - Sensores, atuadores, salas, cogumelos e fases podem ser desativados.
 - A desativação não deve remover registros históricos relacionados.
-- Leituras, coletas, configurações, mudanças de fase, acionamentos e auditorias devem ser preservados.
+- Leituras, coletas, configurações, mudanças de fase, controles de atuadores, alertas e auditorias devem ser preservados.
+- A atualização controlada de `status_execucao` e `aplicado_em` não deve alterar os dados originais do comando.
+- Alterações no estado de um alerta não devem apagar seu histórico.
 - Exclusões físicas devem existir somente para manutenção administrativa controlada ou dados fictícios.
 - Uma exclusão física autorizada deve ser registrada para auditoria.
 
 ## RN-008 — Alertas
 
-O sistema deve gerar alertas quando uma medição violar a configuração válida para o lote naquele momento.
+O sistema deve gerar alertas quando uma medição violar a configuração válida para o lote naquele momento ou quando ocorrer uma falha operacional monitorada.
+
+### Tipos de condição
+
+Os alertas podem representar:
+
+- temperatura abaixo do limite;
+- temperatura acima do limite;
+- umidade abaixo do limite;
+- umidade acima do limite;
+- CO₂ acima do limite;
+- falha de sensor;
+- falha de atuador;
+- falha de comunicação;
+- outra condição prevista pela aplicação.
 
 ### Regras
 
-- O alerta deve identificar o lote, o sensor, a grandeza, o valor medido e o limite violado.
-- Quando possível, o alerta deve referenciar a leitura que o originou.
+- O alerta deve identificar o lote e o tipo da condição.
+- Quando aplicável, o alerta deve identificar o sensor, o atuador e a leitura relacionados.
+- O alerta deve registrar o valor observado e o limite de referência quando essas informações existirem.
+- O alerta deve possuir severidade `aviso` ou `critico`.
 - O alerta deve possuir os estados `aberto`, `reconhecido` e `resolvido`.
 - O reconhecimento deve registrar o usuário e o horário.
-- A resolução deve registrar quando a condição voltou ao normal ou foi encerrada manualmente.
-- O sistema deve evitar vários alertas abertos para a mesma condição, sensor e lote.
+- Reconhecer um alerta não significa que a condição foi resolvida.
+- Alertas ambientais devem ser resolvidos automaticamente quando a condição voltar aos limites permitidos.
+- Uma resolução manual deve registrar o usuário responsável.
+- O sistema deve evitar vários alertas `aberto` ou `reconhecido` para a mesma combinação de lote, tipo, sensor e atuador.
+- Sensores externos não devem gerar alertas baseados nos limites da configuração do lote.
+- Alertas de tipos diferentes podem estar relacionados à mesma leitura.
 - Alertas resolvidos devem permanecer no histórico.
 
 ## RN-009 — Usuários, permissões e auditoria
 
-O sistema deve diferenciar usuários administradores de usuários operacionais.
+O sistema deve diferenciar usuários com perfil `administrador` de usuários com perfil `operador`.
 
 ### Administradores
 
 Podem gerenciar usuários, salas, cogumelos, fases, sensores, atuadores e operações administrativas.
 
-### Usuários operacionais
+### Operadores
 
 Podem acompanhar salas, operar lotes, ajustar parâmetros, controlar atuadores e reconhecer alertas conforme suas permissões.
 
@@ -183,6 +227,8 @@ Devem ser registradas, no mínimo:
 - reconhecimento e resolução manual de alertas;
 - alterações cadastrais relevantes;
 - exclusões físicas administrativas.
+
+Comandos manuais devem ser auditados mesmo quando também estiverem registrados em `controle_atuador`, pois representam uma ação humana.
 
 Cada registro deve identificar a ação, o horário, a origem e o usuário responsável quando houver.
 

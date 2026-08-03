@@ -508,6 +508,9 @@ Representa um comando solicitado ou uma mudança de estado realizada localmente.
 - `id_usuario` deve permanecer vazio em ações automáticas.
 - `id_lote` pode permanecer vazio durante manutenção ou quando não houver lote ativo.
 - Quando preenchido, o lote deve pertencer à mesma sala do atuador.
+- Quando `id_lote` estiver preenchido, `ocorrido_em` não pode ser anterior a `lote.iniciado_em`.
+- Para um lote finalizado, `ocorrido_em` não pode ser posterior a `lote.finalizado_em`.
+- Um evento ocorrido enquanto o lote estava ativo pode ser sincronizado depois da finalização.
 - `identificador_externo` deve ser único.
 - A API gera o identificador para ações manuais e automações online.
 - O ESP32 gera o identificador para ações realizadas pela automação local.
@@ -626,6 +629,7 @@ Representa o histórico de ações relevantes realizadas no SmartMushroom. Subst
 - Senhas, hashes, tokens e outros segredos nunca devem ser registrados.
 - Registros de auditoria não devem ser alterados ou excluídos.
 - Leituras, coletas e acionamentos automáticos não devem gerar auditoria individual.
+- Comandos manuais de atuadores devem gerar auditoria, mesmo quando também estiverem registrados em `controle_atuador`, pois representam uma ação humana.
 - Eventos que já possuem tabelas históricas próprias não devem ser duplicados sem necessidade.
 - Ações administrativas e alterações relevantes de negócio devem ser auditadas.
 

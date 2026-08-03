@@ -26,6 +26,7 @@ smartmushroom-db/
 ├── legacy/      # Arquivos históricos que não devem ser executados
 ├── tests/       # Verificações do schema e das regras
 └── README.md
+```
 
 ## Convenções de nomenclatura
 
@@ -46,9 +47,10 @@ O banco de dados utiliza nomes em português e no padrão `snake_case`.
 ```text
 fase_cultivo
 id_fase_cultivo
-temperatura_min
-data_criacao
+temperatura_ambiente_min
+criado_em
 id_lote
+```
 
 ## Padrão das chaves primárias
 
@@ -106,7 +108,7 @@ Eventos que possuem data e hora devem utilizar:
 DATETIME(3)
 ```
 
-A precisão de milissegundos permite ordenar eventos próximos e controlar sincronizações realizadas pelos dispositivos.
+A precisão de milissegundos permite ordenar eventos próximos e controlar sincronizações realizadas pelos equipamentos.
 
 Exemplos:
 
@@ -114,8 +116,10 @@ Exemplos:
 - `atualizado_em`;
 - `medido_em`;
 - `recebido_em`;
-- `finalizado_em`;
-- `reaberto_em`.
+- `ocorrido_em`;
+- `aplicado_em`;
+- `registrado_em`;
+- `finalizado_em`.
 
 ### Datas sem horário
 
@@ -123,26 +127,85 @@ O tipo `DATE` deve ser utilizado somente quando o horário não possuir signific
 
 ### Exibição
 
-A API e o aplicativo são responsáveis por converter os valores UTC para o fuso horário do usuário. Inicialmente, o sistema utilizará `America/Sao_Paulo`.
+A API e o aplicativo são responsáveis por converter os valores UTC para o fuso horário do usuário.
 
-### Leituras offline
+Inicialmente, o sistema utilizará `America/Sao_Paulo`.
+
+### Programações em horário local
+
+Horários relacionados à rotina do produtor devem ser interpretados no fuso horário da propriedade.
+
+A iluminação automática inicia às 06:00 em `America/Sao_Paulo`, mas os instantes efetivamente registrados continuam sendo armazenados em UTC.
+
+A API e o firmware são responsáveis pela conversão entre o horário local da programação e UTC.
+
+### Coletas offline
 
 A coleta deve registrar separadamente:
 
-- `medido_em`: instante em que o dispositivo realizou a medição;
-- `recebido_em`: instante em que a API recebeu a coleta.
+- `medido_em`: instante em que o equipamento realizou a medição;
+- `recebido_em`: instante em que a API recebeu ou o processo de migração importou a coleta.
 
 Essa separação permite sincronizar dados atrasados sem alterar o momento original da medição.
 
 ### Finalização do lote
 
-A finalização deve registrar um instante preciso em `finalizado_em`, permitindo comparar a finalização com o instante `medido_em` das coletas.
+A finalização deve registrar um instante preciso em `finalizado_em`, permitindo comparar a finalização com `coleta.medido_em`.
+
+Uma coleta atrasada somente pode ser associada ao lote quando tiver sido medida durante o período em que ele estava ativo.
+
+## Identificadores externos e idempotência
+
+Eventos que podem ser enviados novamente devem possuir um identificador externo único.
+
+O campo `identificador_externo` utiliza um UUID armazenado como `CHAR(36)`.
+
+### Coletas
+
+- O ESP32 gera o identificador antes de armazenar ou enviar uma coleta.
+- A API gera o identificador para coletas manuais.
+- O processo de migração gera o identificador para registros importados.
+- O reenvio do mesmo identificador não cria outra coleta.
+
+### Controle dos atuadores
+
+- A API gera o identificador para comandos manuais e automações online.
+- O ESP32 gera o identificador para ações realizadas pela automação local.
+- O processo de migração gera o identificador para registros importados.
+- O mesmo identificador deve ser reutilizado em todas as tentativas de sincronização.
+
+## Controle e confirmação dos atuadores
+
+Um comando solicitado não significa necessariamente que o equipamento alterou seu estado físico.
+
+A tabela `controle_atuador` distingue o estado desejado da confirmação de execução.
+
+### Estados de execução
+
+```text
+pendente → aplicado
+         ↘ falhou
+```
+
+- `pendente`: o comando foi registrado, mas ainda não foi confirmado pelo ESP32;
+- `aplicado`: a execução ocorreu ou foi confirmada;
+- `falhou`: o comando não pôde ser executado.
+
+### Instantes
+
+- `ocorrido_em`: momento em que o comando ou acionamento foi gerado;
+- `aplicado_em`: momento em que a execução ocorreu ou foi confirmada;
+- `registrado_em`: momento em que o sistema registrou ou importou o evento.
+
+O estado efetivo do atuador é determinado pelo registro com `status_execucao` igual a `aplicado` mais recente, ordenado por `aplicado_em` e `id_controle_atuador`.
+
+Após a criação de um registro de controle, somente `status_execucao` e `aplicado_em` podem ser atualizados.
 
 ## Escopo de propriedade
 
 A versão inicial do SmartMushroom atende uma única propriedade rural.
 
-Não será criada uma entidade `propriedade` nesta etapa. Todas as salas, usuários, sensores, dispositivos e lotes pertencem implicitamente à mesma operação.
+Não será criada uma entidade `propriedade` nesta etapa. Todas as salas, usuários, sensores, atuadores e lotes pertencem implicitamente à mesma operação.
 
 ### Evolução futura
 
